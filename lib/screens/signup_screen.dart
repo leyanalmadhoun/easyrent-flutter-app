@@ -1,4 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
+import 'customer_home_screen.dart';
+import 'office_dashboard_screen.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -8,8 +13,11 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
-  final _formKey = GlobalKey<FormState>();
+  static const navy = Color(0xFF12305D);
+  static const blue = Color(0xFF1173EA);
+  static const grey = Color(0xFF64748B);
 
+  final _formKey = GlobalKey<FormState>();
   final nameController = TextEditingController();
   final managerController = TextEditingController();
   final emailController = TextEditingController();
@@ -18,18 +26,12 @@ class _SignupScreenState extends State<SignupScreen> {
   final passwordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
 
-  static const navy = Color(0xFF12305D);
-  static const blue = Color(0xFF1173EA);
-  static const grey = Color(0xFF75849B);
-  static const borderColor = Color(0xFFD7DDE6);
-
   bool isCustomer = true;
   bool obscurePassword = true;
   bool obscureConfirmPassword = true;
   bool isLoading = false;
-
-  int numberOfCars = 0;
-  String countryCode = '+1';
+  int numberOfCars = 1;
+  String countryCode = '+90';
   String subscriptionPlan = 'Monthly';
 
   @override
@@ -44,238 +46,170 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 
-  String? requiredValidator(String? value, String message) {
-    if (value == null || value.trim().isEmpty) {
-      return message;
-    }
+  String? _required(String? value, String message) {
+    if (value == null || value.trim().isEmpty) return message;
     return null;
   }
 
-  String? emailValidator(String? value) {
+  String? _email(String? value) {
     final email = value?.trim() ?? '';
-
-    if (email.isEmpty) {
-      return 'Please enter your email address';
-    }
-
-    final pattern = RegExp(
-      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-    );
-
-    if (!pattern.hasMatch(email)) {
+    if (email.isEmpty) return 'Please enter your email address';
+    if (!RegExp(r'^[\w\-.]+@[\w\-]+\.[\w\-.]+$').hasMatch(email)) {
       return 'Please enter a valid email address';
     }
-
     return null;
   }
 
-  String? phoneValidator(String? value) {
+  String? _phone(String? value) {
     final phone = value?.trim() ?? '';
-
-    if (phone.isEmpty) {
-      return 'Please enter your phone number';
-    }
-
-    if (phone.length < 7) {
-      return 'Please enter a valid phone number';
-    }
-
+    if (phone.isEmpty) return 'Please enter your phone number';
+    if (phone.length < 7) return 'Please enter a valid phone number';
     return null;
   }
 
-  String? passwordValidator(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'Please enter your password';
-    }
-
-    if (value.length < 8) {
-      return 'Password must contain at least 8 characters';
-    }
-
+  String? _password(String? value) {
+    if (value == null || value.isEmpty) return 'Please enter your password';
+    if (value.length < 8) return 'Use at least 8 characters';
     return null;
   }
 
-  String? confirmPasswordValidator(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'Please confirm your password';
-    }
-
-    if (value != passwordController.text) {
-      return 'Passwords do not match';
-    }
-
-    return null;
-  }
-
-  void changeAccountType(bool customer) {
+  Future<void> _createAccount() async {
     FocusScope.of(context).unfocus();
-
-    setState(() {
-      isCustomer = customer;
-    });
-
-    _formKey.currentState?.reset();
-  }
-
-  Future<void> createAccount() async {
-    FocusScope.of(context).unfocus();
-
-    if (!_formKey.currentState!.validate()) {
+    if (!_formKey.currentState!.validate()) return;
+    if (confirmPasswordController.text != passwordController.text) {
+      _showMessage('Passwords do not match.', isError: true);
       return;
     }
 
-    if (!isCustomer && numberOfCars == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select the number of cars'),
-        ),
+    setState(() => isLoading = true);
+
+    try {
+      final credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: emailController.text.trim(),
+        password: passwordController.text,
       );
-      return;
+
+      final uid = credential.user!.uid;
+      final role = isCustomer ? 'customer' : 'office';
+      final data = <String, dynamic>{
+        'uid': uid,
+        'role': role,
+        'email': emailController.text.trim(),
+        'phone': '$countryCode${phoneController.text.trim()}',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (isCustomer) {
+        data['fullName'] = nameController.text.trim();
+      } else {
+        data.addAll({
+          'officeName': nameController.text.trim(),
+          'managerName': managerController.text.trim(),
+          'address': addressController.text.trim(),
+          'numberOfCars': numberOfCars,
+          'subscriptionPlan': subscriptionPlan,
+        });
+      }
+
+      await FirebaseFirestore.instance.collection('users').doc(uid).set(data);
+      await credential.user!.updateDisplayName(
+        isCustomer ? nameController.text.trim() : managerController.text.trim(),
+      );
+
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => isCustomer
+              ? const CustomerHomeScreen()
+              : const OfficeDashboardScreen(),
+        ),
+        (_) => false,
+      );
+    } on FirebaseAuthException catch (error) {
+      _showMessage(_authMessage(error.code), isError: true);
+    } catch (_) {
+      _showMessage('Account creation failed. Please try again.', isError: true);
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
+  }
 
-    setState(() {
-      isLoading = true;
-    });
+  String _authMessage(String code) {
+    switch (code) {
+      case 'email-already-in-use':
+        return 'An account already exists with this email.';
+      case 'invalid-email':
+        return 'The email address is invalid.';
+      case 'weak-password':
+        return 'Please choose a stronger password.';
+      case 'operation-not-allowed':
+        return 'Email and password sign-up is not enabled.';
+      case 'network-request-failed':
+        return 'Check your internet connection and try again.';
+      default:
+        return 'Account creation failed. Please try again.';
+    }
+  }
 
-    await Future.delayed(const Duration(seconds: 1));
-
+  void _showMessage(String message, {bool isError = false}) {
     if (!mounted) return;
-
-    setState(() {
-      isLoading = false;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('The account will be connected to Firebase later'),
-      ),
-    );
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message), backgroundColor: isError ? const Color(0xFFDC2626) : const Color(0xFF16A34A), behavior: SnackBarBehavior.floating));
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: GestureDetector(
-          onTap: () {
-            FocusScope.of(context).unfocus();
-          },
-          child: SingleChildScrollView(
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            padding: const EdgeInsets.fromLTRB(24, 18, 24, 30),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: IconButton(
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                      },
-                      icon: const Icon(
-                        Icons.arrow_back,
-                        color: navy,
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5F8FD),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.arrow_back_ios_new_rounded, color: navy)),
+        ),
+        body: SafeArea(
+          top: false,
+          child: GestureDetector(
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(22, 5, 22, 30),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    Container(width: 70, height: 70, padding: const EdgeInsets.all(9), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(21), boxShadow: const [BoxShadow(color: Color(0x181173EA), blurRadius: 20, offset: Offset(0, 8))]), child: Image.asset('assets/images/logo.png', fit: BoxFit.contain)),
+                    const SizedBox(height: 17),
+                    const Text('Create Your Account', style: TextStyle(color: navy, fontSize: 26, fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 6),
+                    const Text('Join EasyRent and start your journey today', style: TextStyle(color: grey, fontSize: 14)),
+                    const SizedBox(height: 23),
+                    _accountTypeSelector(),
+                    const SizedBox(height: 18),
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(17, 20, 17, 4),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: const Color(0xFFE5EBF3)), boxShadow: const [BoxShadow(color: Color(0x09000000), blurRadius: 18, offset: Offset(0, 6))]),
+                      child: isCustomer ? _customerForm() : _officeForm(),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54,
+                      child: ElevatedButton(
+                        onPressed: isLoading ? null : _createAccount,
+                        style: ElevatedButton.styleFrom(backgroundColor: blue, foregroundColor: Colors.white, disabledBackgroundColor: const Color(0xFF9CC7F9), elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13))),
+                        child: isLoading
+                            ? const SizedBox(width: 23, height: 23, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+                            : Text(isCustomer ? 'Create Customer Account' : 'Create Office Account', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
                       ),
                     ),
-                  ),
-                  const FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text.rich(
-                      TextSpan(
-                        children: [
-                          TextSpan(
-                            text: 'Create an Account with ',
-                            style: TextStyle(color: navy),
-                          ),
-                          TextSpan(
-                            text: 'Easy',
-                            style: TextStyle(color: navy),
-                          ),
-                          TextSpan(
-                            text: 'Rent',
-                            style: TextStyle(color: blue),
-                          ),
-                        ],
-                      ),
-                      maxLines: 1,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  _accountTypeSelector(),
-                  const SizedBox(height: 22),
-                  if (isCustomer)
-                    _customerForm()
-                  else
-                    _officeForm(),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: isLoading ? null : createAccount,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: blue,
-                        foregroundColor: Colors.white,
-                        disabledBackgroundColor: const Color(0xFF9EC8FA),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: isLoading
-                          ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2.5,
-                        ),
-                      )
-                          : Text(
-                        isCustomer
-                            ? 'Create Account'
-                            : 'Create Office Account',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text(
-                        'Already have an account?',
-                        style: TextStyle(
-                          color: grey,
-                          fontSize: 13,
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                        },
-                        child: const Text(
-                          'Sign In',
-                          style: TextStyle(
-                            color: blue,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    Row(mainAxisAlignment: MainAxisAlignment.center, children: [const Text('Already have an account?', style: TextStyle(color: grey, fontSize: 13)), TextButton(onPressed: () => Navigator.pop(context), child: const Text('Sign In', style: TextStyle(color: blue, fontWeight: FontWeight.w800)))]),
+                  ],
+                ),
               ),
             ),
           ),
@@ -286,514 +220,141 @@ class _SignupScreenState extends State<SignupScreen> {
 
   Widget _accountTypeSelector() {
     return Container(
-      height: 48,
-      padding: const EdgeInsets.all(4),
+      height: 68,
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: const Color(0xFFF4F6F9),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: const Color(0xFFE7EBF0),
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _accountTypeButton(
-              title: 'Customer',
-              selected: isCustomer,
-              onTap: () {
-                changeAccountType(true);
-              },
-            ),
-          ),
-          Expanded(
-            child: _accountTypeButton(
-              title: 'Rental Office',
-              selected: !isCustomer,
-              onTap: () {
-                changeAccountType(false);
-              },
-            ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: const Color(0xFFDCE4EE)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
           ),
         ],
       ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Expanded(child: _typeButton('Customer', Icons.person_outline_rounded, isCustomer, () => setState(() => isCustomer = true))),
+        Expanded(child: _typeButton('Rental Office', Icons.business_outlined, !isCustomer, () => setState(() => isCustomer = false))),
+      ]),
     );
   }
 
-  Widget _accountTypeButton({
-    required String title,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
+  Widget _typeButton(String title, IconData icon, bool selected, VoidCallback onTap) {
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(11),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? blue : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          color: selected ? blue : const Color(0xFFF7F9FC),
+          borderRadius: BorderRadius.circular(13),
+          boxShadow: selected
+              ? const [
+                  BoxShadow(
+                    color: Color(0x301173EA),
+                    blurRadius: 10,
+                    offset: Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
-        child: Text(
-          title,
-          style: TextStyle(
-            color: selected ? Colors.white : grey,
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, color: selected ? Colors.white : grey, size: 21), const SizedBox(width: 8), Text(title, style: TextStyle(color: selected ? Colors.white : navy, fontSize: 13, fontWeight: FontWeight.w800))]),
       ),
     );
   }
 
   Widget _customerForm() {
-    return Column(
-      children: [
-        _textField(
-          label: 'Full Name',
-          hint: 'Enter your full name',
-          controller: nameController,
-          validator: (value) {
-            return requiredValidator(value, 'Please enter your full name');
-          },
-        ),
-        _textField(
-          label: 'Email Address',
-          hint: 'Enter your email address',
-          controller: emailController,
-          keyboardType: TextInputType.emailAddress,
-          validator: emailValidator,
-        ),
-        _phoneField(),
-        _passwordField(),
-        _confirmPasswordField(),
-      ],
-    );
+    return Column(children: [
+      _field('Full Name', 'Enter your full name', nameController, validator: (v) => _required(v, 'Please enter your full name'), icon: Icons.person_outline_rounded),
+      _field('Email Address', 'Enter your email address', emailController, validator: _email, type: TextInputType.emailAddress, icon: Icons.email_outlined),
+      _phoneField(),
+      _passwordFields(),
+    ]);
   }
 
   Widget _officeForm() {
-    return Column(
-      children: [
-        _textField(
-          label: 'Office Name',
-          hint: 'e.g. Main Branch',
-          controller: nameController,
-          validator: (value) {
-            return requiredValidator(value, 'Please enter the office name');
-          },
-        ),
-        _textField(
-          label: 'Owner/Manager Name',
-          hint: 'e.g. John Doe',
-          controller: managerController,
-          validator: (value) {
-            return requiredValidator(
-              value,
-              'Please enter the owner or manager name',
-            );
-          },
-        ),
-        _textField(
-          label: 'Email Address',
-          hint: 'Enter your email address',
-          controller: emailController,
-          keyboardType: TextInputType.emailAddress,
-          validator: emailValidator,
-        ),
-        _phoneField(),
-        _textField(
-          label: 'Office Address',
-          hint: '123 Main Street, City, Country',
-          controller: addressController,
-          maxLines: 3,
-          validator: (value) {
-            return requiredValidator(
-              value,
-              'Please enter the office address',
-            );
-          },
-        ),
-        _carCounter(),
-        _passwordField(),
-        _confirmPasswordField(),
-        _subscriptionSection(),
-      ],
-    );
+    return Column(children: [
+      _field('Office Name', 'Example: City Center Office', nameController, validator: (v) => _required(v, 'Please enter the office name'), icon: Icons.business_outlined),
+      _field('Manager Name', 'Enter the owner or manager name', managerController, validator: (v) => _required(v, 'Please enter the manager name'), icon: Icons.person_outline_rounded),
+      _field('Email Address', 'Enter your email address', emailController, validator: _email, type: TextInputType.emailAddress, icon: Icons.email_outlined),
+      _phoneField(),
+      _field('Office Address', 'Street, city and country', addressController, validator: (v) => _required(v, 'Please enter the office address'), icon: Icons.location_on_outlined, lines: 2),
+      _carCounter(),
+      _passwordFields(),
+      _subscription(),
+    ]);
   }
 
   Widget _phoneField() {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              SizedBox(
-                width: 110,
-                child: Text(
-                  'Country Code',
-                  maxLines: 1,
-                  overflow: TextOverflow.visible,
-                  style: TextStyle(
-                    color: navy,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Phone Number',
-                  maxLines: 1,
-                  style: TextStyle(
-                    color: navy,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 7),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 110,
-                child: DropdownButtonFormField<String>(
-                  initialValue: countryCode,
-                  isExpanded: true,
-                  style: const TextStyle(
-                    color: navy,
-                    fontSize: 14,
-                  ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: '+1',
-                      child: Text('+1'),
-                    ),
-                    DropdownMenuItem(
-                      value: '+90',
-                      child: Text('+90'),
-                    ),
-                    DropdownMenuItem(
-                      value: '+970',
-                      child: Text('+970'),
-                    ),
-                    DropdownMenuItem(
-                      value: '+972',
-                      child: Text('+972'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() {
-                        countryCode = value;
-                      });
-                    }
-                  },
-                  decoration: _fieldDecoration(''),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextFormField(
-                  controller: phoneController,
-                  keyboardType: TextInputType.phone,
-                  textInputAction: TextInputAction.next,
-                  validator: phoneValidator,
-                  style: const TextStyle(
-                    color: navy,
-                    fontSize: 14,
-                  ),
-                  decoration: _fieldDecoration('XXXXXXXXXX'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.only(bottom: 15),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Phone Number', style: TextStyle(color: navy, fontSize: 13, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 7),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SizedBox(width: 92, child: DropdownButtonFormField<String>(initialValue: countryCode, items: const ['+90', '+970', '+972', '+1'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => countryCode = v ?? countryCode), decoration: _decoration('', Icons.flag_outlined))),
+          const SizedBox(width: 9),
+          Expanded(child: TextFormField(controller: phoneController, validator: _phone, keyboardType: TextInputType.phone, decoration: _decoration('Phone number', Icons.phone_outlined))),
+        ]),
+      ]),
     );
+  }
+
+  Widget _passwordFields() {
+    return Column(children: [
+      _field('Password', 'At least 8 characters', passwordController, validator: _password, icon: Icons.lock_outline_rounded, obscure: obscurePassword, suffix: IconButton(onPressed: () => setState(() => obscurePassword = !obscurePassword), icon: Icon(obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: grey, size: 20))),
+      _field('Confirm Password', 'Enter your password again', confirmPasswordController, validator: (v) => _required(v, 'Please confirm your password'), icon: Icons.lock_reset_rounded, obscure: obscureConfirmPassword, suffix: IconButton(onPressed: () => setState(() => obscureConfirmPassword = !obscureConfirmPassword), icon: Icon(obscureConfirmPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, color: grey, size: 20))),
+    ]);
   }
 
   Widget _carCounter() {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Number of Cars',
-            style: TextStyle(
-              color: navy,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 7),
-          Container(
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(9),
-              border: Border.all(color: borderColor),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: IconButton(
-                    onPressed: () {
-                      setState(() {
-                        numberOfCars++;
-                      });
-                    },
-                    icon: const Icon(
-                      Icons.add,
-                      color: navy,
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Center(
-                    child: Text(
-                      '$numberOfCars',
-                      style: const TextStyle(
-                        color: grey,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: IconButton(
-                    onPressed: numberOfCars == 0
-                        ? null
-                        : () {
-                      setState(() {
-                        numberOfCars--;
-                      });
-                    },
-                    icon: const Icon(Icons.remove),
-                    color: navy,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.only(bottom: 15),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Number of Cars', style: TextStyle(color: navy, fontSize: 13, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 7),
+        Container(height: 52, decoration: BoxDecoration(color: const Color(0xFFF9FBFE), borderRadius: BorderRadius.circular(13), border: Border.all(color: const Color(0xFFDCE4EE))), child: Row(children: [IconButton(onPressed: numberOfCars > 1 ? () => setState(() => numberOfCars--) : null, icon: const Icon(Icons.remove_circle_outline_rounded)), Expanded(child: Text('$numberOfCars', textAlign: TextAlign.center, style: const TextStyle(color: navy, fontSize: 16, fontWeight: FontWeight.w800))), IconButton(onPressed: () => setState(() => numberOfCars++), icon: const Icon(Icons.add_circle_outline_rounded, color: blue))])),
+      ]),
     );
   }
 
-  Widget _passwordField() {
-    return _textField(
-      label: 'Password',
-      hint: 'Enter your password',
-      controller: passwordController,
-      obscureText: obscurePassword,
-      validator: passwordValidator,
-      suffixIcon: IconButton(
-        onPressed: () {
-          setState(() {
-            obscurePassword = !obscurePassword;
-          });
-        },
-        icon: Icon(
-          obscurePassword
-              ? Icons.visibility_off_outlined
-              : Icons.visibility_outlined,
-          color: grey,
-          size: 20,
-        ),
-      ),
-    );
-  }
-
-  Widget _confirmPasswordField() {
-    return _textField(
-      label: 'Confirm Password',
-      hint: 'Enter your password again',
-      controller: confirmPasswordController,
-      obscureText: obscureConfirmPassword,
-      textInputAction: TextInputAction.done,
-      validator: confirmPasswordValidator,
-      suffixIcon: IconButton(
-        onPressed: () {
-          setState(() {
-            obscureConfirmPassword = !obscureConfirmPassword;
-          });
-        },
-        icon: Icon(
-          obscureConfirmPassword
-              ? Icons.visibility_off_outlined
-              : Icons.visibility_outlined,
-          color: grey,
-          size: 20,
-        ),
-      ),
-    );
-  }
-
-  Widget _subscriptionSection() {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(top: 2),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F8FE),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: const Color(0xFFE4EAF3),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Subscription Plan',
-            style: TextStyle(
-              color: navy,
-              fontSize: 19,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Choose a plan based on the size of your fleet.',
-            style: TextStyle(
-              color: grey,
-              fontSize: 13,
-            ),
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            'Plan Type',
-            style: TextStyle(
-              color: navy,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 7),
-          DropdownButtonFormField<String>(
-            initialValue: subscriptionPlan,
-            isExpanded: true,
-            style: const TextStyle(
-              color: navy,
-              fontSize: 14,
-            ),
-            items: const [
-              DropdownMenuItem(
-                value: 'Monthly',
-                child: Text('Monthly'),
-              ),
-              DropdownMenuItem(
-                value: 'Yearly',
-                child: Text('Yearly'),
-              ),
-            ],
-            onChanged: (value) {
-              if (value != null) {
-                setState(() {
-                  subscriptionPlan = value;
-                });
-              }
-            },
-            decoration: _fieldDecoration('Select a plan'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _textField({
-    required String label,
-    required String hint,
-    required TextEditingController controller,
-    required String? Function(String?) validator,
-    TextInputType keyboardType = TextInputType.text,
-    TextInputAction textInputAction = TextInputAction.next,
-    bool obscureText = false,
-    int maxLines = 1,
-    Widget? suffixIcon,
-  }) {
+  Widget _subscription() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: navy,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 7),
-          TextFormField(
-            controller: controller,
-            validator: validator,
-            keyboardType: keyboardType,
-            textInputAction: textInputAction,
-            obscureText: obscureText,
-            maxLines: obscureText ? 1 : maxLines,
-            style: const TextStyle(
-              color: navy,
-              fontSize: 14,
-            ),
-            decoration: _fieldDecoration(
-              hint,
-              suffixIcon: suffixIcon,
-            ),
-          ),
-        ],
-      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Subscription Plan', style: TextStyle(color: navy, fontSize: 13, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 7),
+        DropdownButtonFormField<String>(initialValue: subscriptionPlan, items: const ['Monthly', 'Yearly'].map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(), onChanged: (v) => setState(() => subscriptionPlan = v ?? subscriptionPlan), decoration: _decoration('Choose a plan', Icons.workspace_premium_outlined)),
+      ]),
     );
   }
 
-  InputDecoration _fieldDecoration(
-      String hint, {
-        Widget? suffixIcon,
-      }) {
+  Widget _field(String label, String hint, TextEditingController controller, {required String? Function(String?) validator, required IconData icon, TextInputType type = TextInputType.text, bool obscure = false, int lines = 1, Widget? suffix}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 15),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: const TextStyle(color: navy, fontSize: 13, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 7),
+        TextFormField(controller: controller, validator: validator, keyboardType: type, obscureText: obscure, maxLines: obscure ? 1 : lines, decoration: _decoration(hint, icon).copyWith(suffixIcon: suffix)),
+      ]),
+    );
+  }
+
+  InputDecoration _decoration(String hint, IconData icon) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(
-        color: Color(0xFF99A5B5),
-        fontSize: 14,
-      ),
-      suffixIcon: suffixIcon,
+      hintStyle: const TextStyle(color: Color(0xFF9AA7B8), fontSize: 13),
+      prefixIcon: Icon(icon, color: grey, size: 20),
       filled: true,
-      fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 14,
-        vertical: 14,
-      ),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(9),
-        borderSide: const BorderSide(color: borderColor),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(9),
-        borderSide: const BorderSide(color: borderColor),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(9),
-        borderSide: const BorderSide(
-          color: navy,
-          width: 1.3,
-        ),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(9),
-        borderSide: const BorderSide(color: Colors.red),
-      ),
-      focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(9),
-        borderSide: const BorderSide(color: Colors.red),
-      ),
+      fillColor: const Color(0xFFF9FBFE),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 15),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(13), borderSide: const BorderSide(color: Color(0xFFDCE4EE))),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(13), borderSide: const BorderSide(color: blue, width: 1.5)),
+      errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(13), borderSide: const BorderSide(color: Color(0xFFDC2626))),
+      focusedErrorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(13), borderSide: const BorderSide(color: Color(0xFFDC2626), width: 1.4)),
     );
   }
 }
