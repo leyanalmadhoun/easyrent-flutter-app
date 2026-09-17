@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'login_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -39,13 +40,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void _finish() {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (context) => const LoginScreen(),
+        builder: (_) => const LoginScreen(),
       ),
     );
   }
 
   void _next() {
-    if (_currentPage == 2) {
+    if (_currentPage == _images.length - 1) {
       _finish();
       return;
     }
@@ -61,6 +62,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     const blue = Color(0xFF1173EA);
     const navy = Color(0xFF12305D);
     const grey = Color(0xFF64748B);
+
+    final isLastPage = _currentPage == _images.length - 1;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FBFF),
@@ -121,13 +124,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: List.generate(
                 _images.length,
                     (index) {
+                  final isSelected = _currentPage == index;
+
                   return AnimatedContainer(
                     duration: const Duration(milliseconds: 250),
-                    width: _currentPage == index ? 24 : 10,
+                    width: isSelected ? 24 : 10,
                     height: 10,
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     decoration: BoxDecoration(
-                      color: _currentPage == index
+                      color: isSelected
                           ? blue
                           : const Color(0xFFD7DDE6),
                       borderRadius: BorderRadius.circular(20),
@@ -153,7 +158,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                   ),
                   child: Text(
-                    _currentPage == 2 ? 'Get Started' : 'Next',
+                    isLastPage ? 'Get Started' : 'Next',
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -162,7 +167,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ),
               ),
             ),
-            if (_currentPage < 2)
+            if (!isLastPage)
               TextButton(
                 onPressed: _finish,
                 child: const Text(

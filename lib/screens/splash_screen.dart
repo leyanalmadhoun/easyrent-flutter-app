@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'onboarding_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -12,15 +13,19 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 2), () {
-      if (!mounted) return;
+    _openOnboarding();
+  }
 
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => const OnboardingScreen(),
-        ),
-      );
-    });
+  Future<void> _openOnboarding() async {
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => const OnboardingScreen(),
+      ),
+    );
   }
 
   @override
@@ -36,18 +41,23 @@ class _SplashScreenState extends State<SplashScreen> {
                 'assets/images/logo.png',
                 width: 120,
                 height: 100,
-                fit: BoxFit.cover,
+                fit: BoxFit.contain,
               ),
+              const SizedBox(height: 12),
               const Text.rich(
                 TextSpan(
                   children: [
                     TextSpan(
                       text: 'Easy',
-                      style: TextStyle(color: Color(0xFF12305D)),
+                      style: TextStyle(
+                        color: Color(0xFF12305D),
+                      ),
                     ),
                     TextSpan(
                       text: 'Rent',
-                      style: TextStyle(color: Color(0xFF1173EA)),
+                      style: TextStyle(
+                        color: Color(0xFF1173EA),
+                      ),
                     ),
                   ],
                 ),

@@ -1,17 +1,16 @@
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
-import 'screens/login_screen.dart';
 import 'screens/customer_home_screen.dart';
+import 'screens/login_screen.dart';
 import 'screens/office_dashboard_screen.dart';
+import 'screens/splash_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   await Firebase.initializeApp();
-
   runApp(const EasyRentApp());
 }
 
@@ -30,7 +29,7 @@ class EasyRentApp extends StatelessWidget {
           seedColor: const Color(0xFF1173EA),
         ),
       ),
-      home: const AuthGate(),
+      home: const SplashScreen(),
     );
   }
 }
@@ -43,17 +42,46 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, authSnapshot) {
-        final user = authSnapshot.data;
         if (authSnapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(
+            body: Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
         }
-        if (user == null) return const LoginScreen();
+
+        final user = authSnapshot.data;
+
+        if (user == null) {
+          return const LoginScreen();
+        }
+
         return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          future: FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
+          future: FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get(),
           builder: (context, userSnapshot) {
-            if (!userSnapshot.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-            final role = userSnapshot.data!.data()?['role'];
-            return role == 'office' ? const OfficeDashboardScreen() : const CustomerHomeScreen();
+            if (userSnapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            }
+
+            if (userSnapshot.hasError || !userSnapshot.hasData) {
+              return const LoginScreen();
+            }
+
+            final userData = userSnapshot.data!.data();
+            final role = userData?['role'];
+
+            if (role == 'office') {
+              return const OfficeDashboardScreen();
+            }
+
+            return const CustomerHomeScreen();
           },
         );
       },
